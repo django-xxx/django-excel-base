@@ -1,0 +1,3 @@
+# -*- coding: utf-8 -*-
+
+from django_excel_base.excel import as_xls, as_csv

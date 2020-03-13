@@ -12,12 +12,8 @@ from django.utils import timezone
 from .compat import basestring, str
 
 
-@property
-def as_xls(self):
-    book = xlwt.Workbook(encoding=self.encoding)
-    sheet = book.add_sheet(self.sheet_name)
-
-    styles = {
+def get_styles(self):
+    return {
         'datetime': xlwt.easyxf(num_format_str='yyyy-mm-dd hh:mm:ss'),
         'date': xlwt.easyxf(num_format_str='yyyy-mm-dd'),
         'time': xlwt.easyxf(num_format_str='hh:mm:ss'),
@@ -25,25 +21,45 @@ def as_xls(self):
         'default': xlwt.Style.default_style,
     }
 
+
+def get_cell_info(self, value, styles):
+    if value is None and self.blanks_for_none:
+        value = ''
+
+    if isinstance(value, datetime.datetime):
+        if timezone.is_aware(value):
+            value = timezone.make_naive(value, pytz.timezone(settings.TIME_ZONE))
+        cell_style = styles['datetime']
+    elif isinstance(value, datetime.date):
+        cell_style = styles['date']
+    elif isinstance(value, datetime.time):
+        cell_style = styles['time']
+    elif self.font:
+        cell_style = styles['font']
+    else:
+        cell_style = styles['default']
+
+    al = xlwt.Alignment()
+    al.horz = self.horz
+    al.vert = self.vert
+    cell_style.alignment = al
+
+    return value, cell_style
+
+
+@property
+def as_xls(self):
+    book = xlwt.Workbook(encoding=self.encoding)
+    sheet = book.add_sheet(self.sheet_name)
+
+    styles = get_styles(self)
+
     widths = {}
     for rowx, row in enumerate(self.data):
         for colx, value in enumerate(row):
             if value is None and self.blanks_for_none:
                 value = ''
-
-            if isinstance(value, datetime.datetime):
-                if timezone.is_aware(value):
-                    value = timezone.make_naive(value, pytz.timezone(settings.TIME_ZONE))
-                cell_style = styles['datetime']
-            elif isinstance(value, datetime.date):
-                cell_style = styles['date']
-            elif isinstance(value, datetime.time):
-                cell_style = styles['time']
-            elif self.font:
-                cell_style = styles['font']
-            else:
-                cell_style = styles['default']
-
+            value, cell_style = get_cell_info(self, value, styles)
             sheet.write(rowx, colx, value, style=cell_style)
 
             # Columns have a property for setting the width.
@@ -64,6 +80,51 @@ def as_xls(self):
                     width = min(width, self.EXCEL_MAXIMUM_ALLOWED_COLUMN_WIDTH)
                     widths[colx] = width
                     sheet.col(colx).width = width
+
+    book.save(self.output)
+
+
+@property
+def as_row_merge_xls(self):
+    book = xlwt.Workbook(encoding=self.encoding)
+    sheet = book.add_sheet(self.sheet_name)
+
+    styles = get_styles(self)
+
+    widths = {}
+    rowIdx = 0  # 行起始索引
+    for rowx, row in enumerate(self.data):
+        # Max row number for current row
+        rowMax = max([(len(r) if isinstance(r, list) else 1) for r in row])
+        for colx, value in enumerate(row):
+            if isinstance(value, list):
+                for vx, val in enumerate(value):
+                    val, cell_style = get_cell_info(self, val, styles)
+                    sheet.write(rowIdx + vx, colx, val, style=cell_style)
+            else:
+                value, cell_style = get_cell_info(self, value, styles)
+                sheet.write_merge(rowIdx, rowIdx + rowMax - 1, colx, colx, value, style=cell_style)
+
+            # Columns have a property for setting the width.
+            # The value is an integer specifying the size measured in 1/256
+            # of the width of the character '0' as it appears in the sheet's default font.
+            # xlwt creates columns with a default width of 2962, roughly equivalent to 11 characters wide.
+            #
+            # https://github.com/python-excel/xlwt/blob/master/xlwt/BIFFRecords.py#L1675
+            # Offset  Size    Contents
+            # 4       2       Width of the columns in 1/256 of the width of the zero character, using default font
+            #                 (first FONT record in the file)
+            #
+            # Default Width: https://github.com/python-excel/xlwt/blob/master/xlwt/Column.py#L14
+            # self.width = 0x0B92
+            if self.auto_adjust_width:
+                width = screen.calc_width(value) * 256 if isinstance(value, basestring) else screen.calc_width(str(value)) * 256
+                if width > widths.get(colx, 0):
+                    width = min(width, self.EXCEL_MAXIMUM_ALLOWED_COLUMN_WIDTH)
+                    widths[colx] = width
+                    sheet.col(colx).width = width
+
+        rowIdx += rowMax  # 更新行起始索引
 
     book.save(self.output)
 

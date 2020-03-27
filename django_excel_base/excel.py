@@ -12,37 +12,51 @@ from django.utils import timezone
 from .compat import basestring, str
 
 
-def get_styles(self):
+def get_cell_styles(self):
+    al = xlwt.Alignment()
+    al.horz = self.horz
+    al.vert = self.vert
+
+    datetime_style = xlwt.easyxf(num_format_str='yyyy-mm-dd hh:mm:ss')
+    datetime_style.alignment = al
+
+    date_style = xlwt.easyxf(num_format_str='yyyy-mm-dd')
+    date_style.alignment = al
+
+    time_style = xlwt.easyxf(num_format_str='hh:mm:ss')
+    time_style.alignment = al
+
+    font_style = xlwt.easyxf('%s %s' % ('font:', self.font))
+    font_style.alignment = al
+
+    dafault_style = xlwt.Style.default_style
+    dafault_style.alignment = al
+
     return {
-        'datetime': xlwt.easyxf(num_format_str='yyyy-mm-dd hh:mm:ss'),
-        'date': xlwt.easyxf(num_format_str='yyyy-mm-dd'),
-        'time': xlwt.easyxf(num_format_str='hh:mm:ss'),
-        'font': xlwt.easyxf('%s %s' % ('font:', self.font)),
-        'default': xlwt.Style.default_style,
+        'datetime': datetime_style,
+        'date': date_style,
+        'time': time_style,
+        'font': font_style,
+        'default': dafault_style,
     }
 
 
-def get_cell_info(self, value, styles):
+def get_cell_info(self, value, cell_styles):
     if value is None and self.blanks_for_none:
         value = ''
 
     if isinstance(value, datetime.datetime):
         if timezone.is_aware(value):
             value = timezone.make_naive(value, pytz.timezone(settings.TIME_ZONE))
-        cell_style = styles['datetime']
+        cell_style = cell_styles['datetime']
     elif isinstance(value, datetime.date):
-        cell_style = styles['date']
+        cell_style = cell_styles['date']
     elif isinstance(value, datetime.time):
-        cell_style = styles['time']
+        cell_style = cell_styles['time']
     elif self.font:
-        cell_style = styles['font']
+        cell_style = cell_styles['font']
     else:
-        cell_style = styles['default']
-
-    al = xlwt.Alignment()
-    al.horz = self.horz
-    al.vert = self.vert
-    cell_style.alignment = al
+        cell_style = cell_styles['default']
 
     return value, cell_style
 
@@ -52,14 +66,14 @@ def as_xls(self):
     book = xlwt.Workbook(encoding=self.encoding)
     sheet = book.add_sheet(self.sheet_name)
 
-    styles = get_styles(self)
+    cell_styles = get_cell_styles(self)
 
     widths = {}
     for rowx, row in enumerate(self.data):
         for colx, value in enumerate(row):
             if value is None and self.blanks_for_none:
                 value = ''
-            value, cell_style = get_cell_info(self, value, styles)
+            value, cell_style = get_cell_info(self, value, cell_styles)
             sheet.write(rowx, colx, value, style=cell_style)
 
             # Columns have a property for setting the width.
@@ -89,7 +103,7 @@ def as_row_merge_xls(self):
     book = xlwt.Workbook(encoding=self.encoding)
     sheet = book.add_sheet(self.sheet_name)
 
-    styles = get_styles(self)
+    cell_styles = get_cell_styles(self)
 
     widths = {}
     rowIdx = 0  # 行起始索引
@@ -99,7 +113,7 @@ def as_row_merge_xls(self):
         for colx, value in enumerate(row):
             if isinstance(value, list):
                 for vx, val in enumerate(value):
-                    val, cell_style = get_cell_info(self, val, styles)
+                    val, cell_style = get_cell_info(self, val, cell_styles)
                     sheet.write(rowIdx + vx, colx, val, style=cell_style)
             else:
                 value, cell_style = get_cell_info(self, value, styles)

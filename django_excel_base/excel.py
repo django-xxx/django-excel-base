@@ -132,6 +132,7 @@ def as_row_merge_xls(self):
             # Default Width: https://github.com/python-excel/xlwt/blob/master/xlwt/Column.py#L14
             # self.width = 0x0B92
             if self.auto_adjust_width:
+                # TODO: Calc width when row merge
                 width = screen.calc_width(value) * 256 if isinstance(value, basestring) else screen.calc_width(str(value)) * 256
                 if width > widths.get(colx, 0):
                     width = min(width, self.EXCEL_MAXIMUM_ALLOWED_COLUMN_WIDTH)

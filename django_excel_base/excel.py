@@ -116,7 +116,7 @@ def as_row_merge_xls(self):
                     val, cell_style = get_cell_info(self, val, cell_styles)
                     sheet.write(rowIdx + vx, colx, val, style=cell_style)
             else:
-                value, cell_style = get_cell_info(self, value, styles)
+                value, cell_style = get_cell_info(self, value, cell_styles)
                 sheet.write_merge(rowIdx, rowIdx + rowMax - 1, colx, colx, value, style=cell_style)
 
             # Columns have a property for setting the width.

@@ -11,7 +11,8 @@ setup(
     version=version,
     keywords='Django Excel Base',
     description='Django Excel Base',
-    long_description=open('README.rst').read(),
+    long_description=open('README.md').read(),
+    long_description_content_type='text/markdown',
 
     url='https://github.com/django-xxx/django-excel-base',
 

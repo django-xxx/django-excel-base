@@ -31,9 +31,11 @@ if is_py2:
     basestring = basestring
     numeric_types = (int, long, float)
     try:
-        from cStringIO import StringIO as BytesIO, StringIO
+        from cStringIO import StringIO
+        from cStringIO import StringIO as BytesIO
     except ImportError:
-        from StringIO import StringIO as BytesIO, StringIO
+        from StringIO import StringIO
+        from StringIO import StringIO as BytesIO
 
 elif is_py3:
     builtin_str = str

@@ -63,87 +63,92 @@ def get_cell_info(self, value, cell_styles):
 
 @property
 def as_xls(self):
-    book = xlwt.Workbook(encoding=self.encoding)
-    sheet = book.add_sheet(self.sheet_name)
+    if not isinstance(self.data, dict):
+        self.data = {self.sheet_name: self.data}
 
     cell_styles = get_cell_styles(self)
 
-    widths = {}
-    for rowx, row in enumerate(self.data):
-        for colx, value in enumerate(row):
-            if value is None and self.blanks_for_none:
-                value = ''
-            value, cell_style = get_cell_info(self, value, cell_styles)
-            sheet.write(rowx, colx, value, style=cell_style)
+    book = xlwt.Workbook(encoding=self.encoding)
 
-            # Columns have a property for setting the width.
-            # The value is an integer specifying the size measured in 1/256
-            # of the width of the character '0' as it appears in the sheet's default font.
-            # xlwt creates columns with a default width of 2962, roughly equivalent to 11 characters wide.
-            #
-            # https://github.com/python-excel/xlwt/blob/master/xlwt/BIFFRecords.py#L1675
-            # Offset  Size    Contents
-            # 4       2       Width of the columns in 1/256 of the width of the zero character, using default font
-            #                 (first FONT record in the file)
-            #
-            # Default Width: https://github.com/python-excel/xlwt/blob/master/xlwt/Column.py#L14
-            # self.width = 0x0B92
-            if self.auto_adjust_width:
-                if not isinstance(value, basestring):
-                    value = str(value)
-                width = (screen.calc_width(value) + 1) * 256
-                if width > widths.get(colx, 0):
-                    width = min(width, self.EXCEL_MAXIMUM_ALLOWED_COLUMN_WIDTH)
-                    widths[colx] = width
-                    sheet.col(colx).width = width
+    for sheet_name, sheet_data in self.data.items():
+        sheet = book.add_sheet(sheet_name)
+
+        widths = {}
+        for rowx, row in enumerate(sheet_data):
+            for colx, value in enumerate(row):
+                if value is None and self.blanks_for_none:
+                    value = ''
+                value, cell_style = get_cell_info(self, value, cell_styles)
+                sheet.write(rowx, colx, value, style=cell_style)
+
+                # Columns have a property for setting the width.
+                # The value is an integer specifying the size measured in 1/256
+                # of the width of the character '0' as it appears in the sheet's default font.
+                # xlwt creates columns with a default width of 2962, roughly equivalent to 11 characters wide.
+                #
+                # https://github.com/python-excel/xlwt/blob/master/xlwt/BIFFRecords.py#L1675
+                # Offset  Size    Contents
+                # 4       2       Width of the columns in 1/256 of the width of the zero character, using default font
+                #                 (first FONT record in the file)
+                #
+                # Default Width: https://github.com/python-excel/xlwt/blob/master/xlwt/Column.py#L14
+                # self.width = 0x0B92
+                if self.auto_adjust_width:
+                    width = screen.calc_width(value) * 256 if isinstance(value, basestring) else screen.calc_width(str(value)) * 256
+                    if width > widths.get(colx, 0):
+                        width = min(width, self.EXCEL_MAXIMUM_ALLOWED_COLUMN_WIDTH)
+                        widths[colx] = width
+                        sheet.col(colx).width = max(width, self.min_cell_width)
 
     book.save(self.output)
 
 
 @property
 def as_row_merge_xls(self):
-    book = xlwt.Workbook(encoding=self.encoding)
-    sheet = book.add_sheet(self.sheet_name)
+    if not isinstance(self.data, dict):
+        self.data = {self.sheet_name: self.data}
 
     cell_styles = get_cell_styles(self)
 
-    widths = {}
-    rowIdx = 0  # 行起始索引
-    for rowx, row in enumerate(self.data):
-        # Max row number for current row
-        rowMax = max([(len(r) if isinstance(r, list) else 1) for r in row])
-        for colx, value in enumerate(row):
-            if isinstance(value, list):
-                for vx, val in enumerate(value):
-                    val, cell_style = get_cell_info(self, val, cell_styles)
-                    sheet.write(rowIdx + vx, colx, val, style=cell_style)
-            else:
-                value, cell_style = get_cell_info(self, value, cell_styles)
-                sheet.write_merge(rowIdx, rowIdx + rowMax - 1, colx, colx, value, style=cell_style)
+    book = xlwt.Workbook(encoding=self.encoding)
 
-            # Columns have a property for setting the width.
-            # The value is an integer specifying the size measured in 1/256
-            # of the width of the character '0' as it appears in the sheet's default font.
-            # xlwt creates columns with a default width of 2962, roughly equivalent to 11 characters wide.
-            #
-            # https://github.com/python-excel/xlwt/blob/master/xlwt/BIFFRecords.py#L1675
-            # Offset  Size    Contents
-            # 4       2       Width of the columns in 1/256 of the width of the zero character, using default font
-            #                 (first FONT record in the file)
-            #
-            # Default Width: https://github.com/python-excel/xlwt/blob/master/xlwt/Column.py#L14
-            # self.width = 0x0B92
-            if self.auto_adjust_width:
-                # TODO: Calc width when row merge
-                if not isinstance(value, basestring):
-                    value = str(value)
-                width = (screen.calc_width(value) + 1) * 256
-                if width > widths.get(colx, 0):
-                    width = min(width, self.EXCEL_MAXIMUM_ALLOWED_COLUMN_WIDTH)
-                    widths[colx] = width
-                    sheet.col(colx).width = width
+    for sheet_name, sheet_data in self.data.items():
+        sheet = book.add_sheet(sheet_name)
 
-        rowIdx += rowMax  # 更新行起始索引
+        widths = {}
+        rowIdx = 0  # 行起始索引
+        for rowx, row in enumerate(sheet_data):
+            # Max row number for current row
+            rowMax = max([(len(r) if isinstance(r, list) else 1) for r in row])
+            for colx, value in enumerate(row):
+                if isinstance(value, list):
+                    for vx, val in enumerate(value):
+                        val, cell_style = get_cell_info(self, val, cell_styles)
+                        sheet.write(rowIdx + vx, colx, val, style=cell_style)
+                else:
+                    value, cell_style = get_cell_info(self, value, cell_styles)
+                    sheet.write_merge(rowIdx, rowIdx + rowMax - 1, colx, colx, value, style=cell_style)
+
+                # Columns have a property for setting the width.
+                # The value is an integer specifying the size measured in 1/256
+                # of the width of the character '0' as it appears in the sheet's default font.
+                # xlwt creates columns with a default width of 2962, roughly equivalent to 11 characters wide.
+                #
+                # https://github.com/python-excel/xlwt/blob/master/xlwt/BIFFRecords.py#L1675
+                # Offset  Size    Contents
+                # 4       2       Width of the columns in 1/256 of the width of the zero character, using default font
+                #                 (first FONT record in the file)
+                #
+                # Default Width: https://github.com/python-excel/xlwt/blob/master/xlwt/Column.py#L14
+                # self.width = 0x0B92
+                if self.auto_adjust_width:
+                    width = screen.calc_width(value) * 256 if isinstance(value, basestring) else screen.calc_width(str(value)) * 256
+                    if width > widths.get(colx, 0):
+                        width = min(width, self.EXCEL_MAXIMUM_ALLOWED_COLUMN_WIDTH)
+                        widths[colx] = width
+                        sheet.col(colx).width = max(width, self.min_cell_width)
+
+            rowIdx += rowMax  # 更新行起始索引
 
     book.save(self.output)
 

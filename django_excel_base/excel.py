@@ -204,52 +204,19 @@ def as_list_row_merge_xls(self):
     book.save(self.output)
 
 
+def generate_sheet_data(sheet_data):
+    data = sheet_data.get('data')
+    mapping = sheet_data.get('mapping')
+    headers = sheet_data.get('headers')
+    return ([headers] if headers else []) + data_preprocessing(data, mapping)
+
+
 @property
 def as_dict_row_merge_xls(self):
     if not isinstance(self.data, dict):
         self.data = {self.sheet_name: {'data': self.data, 'mapping': self.mapping, 'headers': self.headers}}
-
-    cell_styles = get_cell_styles(self)
-
-    book = xlwt.Workbook(encoding=self.encoding)
-
-    q = deque()
-    for sheet_name, sheet_data in self.data.items():
-        data = sheet_data.get('data')
-        mapping = sheet_data.get('mapping')
-        headers = sheet_data.get('headers')
-        sheet_data = ([headers] if headers else []) + data_preprocessing(data, mapping)
-
-        sheet = book.add_sheet(sheet_name)
-
-        widths = {}
-        rowx = 0  # 行起始索引
-        colx = 0
-        for _, row in enumerate(sheet_data):
-            rowmax = 1
-            _rowx = rowx
-            _rowxd = {}
-            q.append(json.dumps([colx, row], ensure_ascii=False))
-            while q:
-                colx, rowdata = json.loads(q.popleft())
-                mergedrowsnum = get_merged_rows_num(rowdata)
-                rowmax = max(rowmax, mergedrowsnum)
-                for idx, value in enumerate(rowdata):
-                    _colx = colx + idx
-                    if isinstance(value, list):
-                        for d in value:
-                            q.append(json.dumps([_colx, d], ensure_ascii=False))
-                    else:
-                        _rowx = _rowxd.get(_colx, rowx)
-                        _rowxd[_colx] = _rowx + mergedrowsnum
-                        value, cell_style = get_cell_info(self, value, cell_styles)
-                        sheet.write_merge(_rowx, _rowx + mergedrowsnum - 1, _colx, _colx, value, style=cell_style)
-                        auto_adjust_width(self, sheet, _colx, value, widths)
-
-            rowx += rowmax  # 更新行起始索引
-            colx = 0
-
-    book.save(self.output)
+    self.data = {sheet_name: generate_sheet_data(sheet_data) for sheet_name, sheet_data in self.data.items()}
+    self.as_list_row_merge_xls
 
 
 @property

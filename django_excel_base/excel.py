@@ -116,18 +116,18 @@ def as_row_merge_xls(self):
         sheet = book.add_sheet(sheet_name)
 
         widths = {}
-        rowIdx = 0  # 行起始索引
-        for rowx, row in enumerate(sheet_data):
+        rowx = 0  # 行起始索引
+        for _, row in enumerate(sheet_data):
             # Max row number for current row
             rowMax = max([(len(r) if isinstance(r, list) else 1) for r in row])
             for colx, value in enumerate(row):
                 if isinstance(value, list):
                     for vx, val in enumerate(value):
                         val, cell_style = get_cell_info(self, val, cell_styles)
-                        sheet.write(rowIdx + vx, colx, val, style=cell_style)
+                        sheet.write(rowx + vx, colx, val, style=cell_style)
                 else:
                     value, cell_style = get_cell_info(self, value, cell_styles)
-                    sheet.write_merge(rowIdx, rowIdx + rowMax - 1, colx, colx, value, style=cell_style)
+                    sheet.write_merge(rowx, rowx + rowMax - 1, colx, colx, value, style=cell_style)
 
                 # Columns have a property for setting the width.
                 # The value is an integer specifying the size measured in 1/256
@@ -148,7 +148,7 @@ def as_row_merge_xls(self):
                         widths[colx] = width
                         sheet.col(colx).width = max(width, self.min_cell_width)
 
-            rowIdx += rowMax  # 更新行起始索引
+            rowx += rowMax  # 更新行起始索引
 
     book.save(self.output)
 

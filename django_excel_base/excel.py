@@ -61,6 +61,29 @@ def get_cell_info(self, value, cell_styles):
     return value, cell_style
 
 
+def auto_adjust_width(self, sheet, colx, value, widths):
+    # Columns have a property for setting the width.
+    # The value is an integer specifying the size measured in 1/256
+    # of the width of the character '0' as it appears in the sheet's default font.
+    # xlwt creates columns with a default width of 2962, roughly equivalent to 11 characters wide.
+    #
+    # https://github.com/python-excel/xlwt/blob/master/xlwt/BIFFRecords.py#L1675
+    # Offset  Size    Contents
+    # 4       2       Width of the columns in 1/256 of the width of the zero character, using default font
+    #                 (first FONT record in the file)
+    #
+    # Default Width: https://github.com/python-excel/xlwt/blob/master/xlwt/Column.py#L14
+    # self.width = 0x0B92
+    if not self.auto_adjust_width:
+        return
+    width = screen.calc_width(value) * 256 if isinstance(value, basestring) else screen.calc_width(str(value)) * 256
+    if width <= widths.get(colx, 0):
+        return
+    width = min(width, self.EXCEL_MAXIMUM_ALLOWED_COLUMN_WIDTH)
+    widths[colx] = width
+    sheet.col(colx).width = max(width, self.min_cell_width)
+
+
 @property
 def as_xls(self):
     if not isinstance(self.data, dict):
@@ -81,24 +104,7 @@ def as_xls(self):
                 value, cell_style = get_cell_info(self, value, cell_styles)
                 sheet.write(rowx, colx, value, style=cell_style)
 
-                # Columns have a property for setting the width.
-                # The value is an integer specifying the size measured in 1/256
-                # of the width of the character '0' as it appears in the sheet's default font.
-                # xlwt creates columns with a default width of 2962, roughly equivalent to 11 characters wide.
-                #
-                # https://github.com/python-excel/xlwt/blob/master/xlwt/BIFFRecords.py#L1675
-                # Offset  Size    Contents
-                # 4       2       Width of the columns in 1/256 of the width of the zero character, using default font
-                #                 (first FONT record in the file)
-                #
-                # Default Width: https://github.com/python-excel/xlwt/blob/master/xlwt/Column.py#L14
-                # self.width = 0x0B92
-                if self.auto_adjust_width:
-                    width = screen.calc_width(value) * 256 if isinstance(value, basestring) else screen.calc_width(str(value)) * 256
-                    if width > widths.get(colx, 0):
-                        width = min(width, self.EXCEL_MAXIMUM_ALLOWED_COLUMN_WIDTH)
-                        widths[colx] = width
-                        sheet.col(colx).width = max(width, self.min_cell_width)
+                auto_adjust_width(self, sheet, colx, value, widths)
 
     book.save(self.output)
 
@@ -129,24 +135,7 @@ def as_row_merge_xls(self):
                     value, cell_style = get_cell_info(self, value, cell_styles)
                     sheet.write_merge(rowx, rowx + rowMax - 1, colx, colx, value, style=cell_style)
 
-                # Columns have a property for setting the width.
-                # The value is an integer specifying the size measured in 1/256
-                # of the width of the character '0' as it appears in the sheet's default font.
-                # xlwt creates columns with a default width of 2962, roughly equivalent to 11 characters wide.
-                #
-                # https://github.com/python-excel/xlwt/blob/master/xlwt/BIFFRecords.py#L1675
-                # Offset  Size    Contents
-                # 4       2       Width of the columns in 1/256 of the width of the zero character, using default font
-                #                 (first FONT record in the file)
-                #
-                # Default Width: https://github.com/python-excel/xlwt/blob/master/xlwt/Column.py#L14
-                # self.width = 0x0B92
-                if self.auto_adjust_width:
-                    width = screen.calc_width(value) * 256 if isinstance(value, basestring) else screen.calc_width(str(value)) * 256
-                    if width > widths.get(colx, 0):
-                        width = min(width, self.EXCEL_MAXIMUM_ALLOWED_COLUMN_WIDTH)
-                        widths[colx] = width
-                        sheet.col(colx).width = max(width, self.min_cell_width)
+                auto_adjust_width(self, sheet, colx, value, widths)
 
             rowx += rowMax  # 更新行起始索引
 

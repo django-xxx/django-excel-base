@@ -2,6 +2,8 @@
 
 import codecs
 import datetime
+import json
+from collections import deque
 
 import pytz
 import screen
@@ -10,6 +12,24 @@ from django.conf import settings
 from django.utils import timezone
 
 from .compat import basestring, str
+
+
+def get_merged_rows_num(data):
+    return max(sum(get_merged_rows_num(d) if isinstance(d, list) else 0 for d in data), 1)
+
+
+def row_preprocessing(data, mapping):
+    field_key = mapping.get('field_key')
+    field_key = field_key if isinstance(field_key, list) else [field_key]
+    data_key = mapping.get('data_key')
+    nextmapping = mapping.get('next')
+    field_value = [data.get(key) for key in field_key]
+    return field_value + [data_preprocessing(data.get(data_key), nextmapping)] if nextmapping else field_value
+
+
+def data_preprocessing(data, mapping):
+    data = data if isinstance(data, list) else [data]
+    return [row_preprocessing(item, mapping) for item in data]
 
 
 def get_cell_styles(self):
@@ -103,7 +123,6 @@ def as_xls(self):
                     value = ''
                 value, cell_style = get_cell_info(self, value, cell_styles)
                 sheet.write(rowx, colx, value, style=cell_style)
-
                 auto_adjust_width(self, sheet, colx, value, widths)
 
     book.save(self.output)
@@ -125,19 +144,110 @@ def as_row_merge_xls(self):
         rowx = 0  # 行起始索引
         for _, row in enumerate(sheet_data):
             # Max row number for current row
-            rowMax = max([(len(r) if isinstance(r, list) else 1) for r in row])
+            rowmax = max([(len(r) if isinstance(r, list) else 1) for r in row])
             for colx, value in enumerate(row):
                 if isinstance(value, list):
                     for vx, val in enumerate(value):
                         val, cell_style = get_cell_info(self, val, cell_styles)
                         sheet.write(rowx + vx, colx, val, style=cell_style)
+                        auto_adjust_width(self, sheet, colx, val, widths)
                 else:
                     value, cell_style = get_cell_info(self, value, cell_styles)
-                    sheet.write_merge(rowx, rowx + rowMax - 1, colx, colx, value, style=cell_style)
+                    sheet.write_merge(rowx, rowx + rowmax - 1, colx, colx, value, style=cell_style)
+                    auto_adjust_width(self, sheet, colx, value, widths)
 
-                auto_adjust_width(self, sheet, colx, value, widths)
+            rowx += rowmax  # 更新行起始索引
 
-            rowx += rowMax  # 更新行起始索引
+    book.save(self.output)
+
+
+@property
+def as_list_row_merge_xls(self):
+    if not isinstance(self.data, dict):
+        self.data = {self.sheet_name: self.data}
+
+    cell_styles = get_cell_styles(self)
+
+    book = xlwt.Workbook(encoding=self.encoding)
+
+    q = deque()
+    for sheet_name, sheet_data in self.data.items():
+        sheet = book.add_sheet(sheet_name)
+
+        widths = {}
+        rowx = 0  # 行起始索引
+        colx = 0
+        for _, row in enumerate(sheet_data):
+            rowmax = 1
+            _rowx = rowx
+            _rowxd = {}
+            q.append(json.dumps([colx, row], ensure_ascii=False))
+            while q:
+                colx, rowdata = json.loads(q.popleft())
+                mergedrowsnum = get_merged_rows_num(rowdata)
+                rowmax = max(rowmax, mergedrowsnum)
+                for idx, value in enumerate(rowdata):
+                    _colx = colx + idx
+                    if isinstance(value, list):
+                        for d in value:
+                            q.append(json.dumps([_colx, d], ensure_ascii=False))
+                    else:
+                        _rowx = _rowxd.get(_colx, rowx)
+                        _rowxd[_colx] = _rowx + mergedrowsnum
+                        value, cell_style = get_cell_info(self, value, cell_styles)
+                        sheet.write_merge(_rowx, _rowx + mergedrowsnum - 1, _colx, _colx, value, style=cell_style)
+                        auto_adjust_width(self, sheet, _colx, value, widths)
+
+            rowx += rowmax  # 更新行起始索引
+            colx = 0
+
+    book.save(self.output)
+
+
+@property
+def as_dict_row_merge_xls(self):
+    if not isinstance(self.data, dict):
+        self.data = {self.sheet_name: {'data': self.data, 'mapping': self.mapping, 'headers': self.headers}}
+
+    cell_styles = get_cell_styles(self)
+
+    book = xlwt.Workbook(encoding=self.encoding)
+
+    q = deque()
+    for sheet_name, sheet_data in self.data.items():
+        data = sheet_data.get('data')
+        mapping = sheet_data.get('mapping')
+        headers = sheet_data.get('headers')
+        sheet_data = ([headers] if headers else []) + data_preprocessing(data, mapping)
+
+        sheet = book.add_sheet(sheet_name)
+
+        widths = {}
+        rowx = 0  # 行起始索引
+        colx = 0
+        for _, row in enumerate(sheet_data):
+            rowmax = 1
+            _rowx = rowx
+            _rowxd = {}
+            q.append(json.dumps([colx, row], ensure_ascii=False))
+            while q:
+                colx, rowdata = json.loads(q.popleft())
+                mergedrowsnum = get_merged_rows_num(rowdata)
+                rowmax = max(rowmax, mergedrowsnum)
+                for idx, value in enumerate(rowdata):
+                    _colx = colx + idx
+                    if isinstance(value, list):
+                        for d in value:
+                            q.append(json.dumps([_colx, d], ensure_ascii=False))
+                    else:
+                        _rowx = _rowxd.get(_colx, rowx)
+                        _rowxd[_colx] = _rowx + mergedrowsnum
+                        value, cell_style = get_cell_info(self, value, cell_styles)
+                        sheet.write_merge(_rowx, _rowx + mergedrowsnum - 1, _colx, _colx, value, style=cell_style)
+                        auto_adjust_width(self, sheet, _colx, value, widths)
+
+            rowx += rowmax  # 更新行起始索引
+            colx = 0
 
     book.save(self.output)
 

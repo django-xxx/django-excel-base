@@ -142,7 +142,7 @@ def as_row_merge_xls(self):
 
         widths = {}
         rowx = 0  # 行起始索引
-        for _, row in enumerate(sheet_data):
+        for row in sheet_data:
             # Max row number for current row
             rowmax = max([(len(r) if isinstance(r, list) else 1) for r in row])
             for colx, value in enumerate(row):

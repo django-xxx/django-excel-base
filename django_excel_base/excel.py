@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 
 import codecs
+import copy
 import datetime
 import json
 from collections import deque
@@ -12,6 +13,31 @@ from django.conf import settings
 from django.utils import timezone
 
 from .compat import basestring, str
+
+
+class LeftMergeCell(object):
+    pass
+
+
+class UpMergeCell(object):
+    pass
+
+
+class MergeCell(object):
+    LeftMerge = LeftMergeCell()
+    UpMerge = UpMergeCell()
+
+
+@property
+def use_xls_or_not(self):
+    if len(self.data) > 1:
+        return True
+    if self.force_csv:
+        return False
+    for sheet_info in self.data.values():
+        if len(sheet_info.get('data') or []) > self.EXCEL_MAXIMUM_ALLOWED_ROWS:
+            return False
+    return True
 
 
 def get_merged_rows_num(data):
@@ -32,33 +58,71 @@ def data_preprocessing(data, mapping):
     return [row_preprocessing(item, mapping) for item in data]
 
 
+def get_header_cell_styles(self):
+    al = xlwt.Alignment()
+    al.horz = self.hhorz
+    al.vert = self.hvert
+
+    font = xlwt.Font()
+    if self.font:
+        font.name = self.font
+    font.bold = True
+
+    datetime_style = xlwt.easyxf(num_format_str='yyyy-mm-dd hh:mm:ss')
+    datetime_style.alignment = al
+    datetime_style.font = font
+
+    date_style = xlwt.easyxf(num_format_str='yyyy-mm-dd')
+    date_style.alignment = al
+    date_style.font = font
+
+    time_style = xlwt.easyxf(num_format_str='hh:mm:ss')
+    time_style.alignment = al
+    time_style.font = font
+
+    dafault_style = xlwt.Style.default_style
+    dafault_style.alignment = al
+    dafault_style.font = font
+
+    return copy.deepcopy({
+        'datetime': datetime_style,
+        'date': date_style,
+        'time': time_style,
+        'default': dafault_style,
+    })
+
+
 def get_cell_styles(self):
     al = xlwt.Alignment()
     al.horz = self.horz
     al.vert = self.vert
 
+    font = xlwt.Font()
+    if self.font:
+        font.name = self.font
+
     datetime_style = xlwt.easyxf(num_format_str='yyyy-mm-dd hh:mm:ss')
     datetime_style.alignment = al
+    datetime_style.font = font
 
     date_style = xlwt.easyxf(num_format_str='yyyy-mm-dd')
     date_style.alignment = al
+    date_style.font = font
 
     time_style = xlwt.easyxf(num_format_str='hh:mm:ss')
     time_style.alignment = al
-
-    font_style = xlwt.easyxf('%s %s' % ('font:', self.font))
-    font_style.alignment = al
+    time_style.font = font
 
     dafault_style = xlwt.Style.default_style
     dafault_style.alignment = al
+    dafault_style.font = font
 
-    return {
+    return copy.deepcopy({
         'datetime': datetime_style,
         'date': date_style,
         'time': time_style,
-        'font': font_style,
         'default': dafault_style,
-    }
+    })
 
 
 def get_cell_info(self, value, cell_styles):
@@ -73,8 +137,6 @@ def get_cell_info(self, value, cell_styles):
         cell_style = cell_styles['date']
     elif isinstance(value, datetime.time):
         cell_style = cell_styles['time']
-    elif self.font:
-        cell_style = cell_styles['font']
     else:
         cell_style = cell_styles['default']
 
@@ -104,26 +166,93 @@ def auto_adjust_width(self, sheet, colx, value, widths):
     sheet.col(colx).width = max(width, self.min_cell_width)
 
 
+def generate_headers(headers):
+    if not headers:
+        return []
+    if isinstance(headers, list) and isinstance(headers[0], list):
+        return headers
+    return [headers]
+
+
+def generate_sheet_info(sheet_info):
+    sheet_data = sheet_info.get('data')
+    sheet_mapping = sheet_info.get('mapping')
+    sheet_info['data'] = data_preprocessing(sheet_data, sheet_mapping)
+    return sheet_info
+
+
+def write_header_cells(self, sheet, headers, widths):
+    if not headers or not isinstance(headers, list):
+        return
+    if not headers[0] or not isinstance(headers[0], list):
+        return
+    rlen, clen = len(headers), len(headers[0])
+    ignore_header_cells = set()
+    header_cell_styles = get_header_cell_styles(self)
+    for i in range(rlen):
+        for j in range(clen):
+            # If cell is MergeCell, direct continue
+            if isinstance(headers[i][j], (LeftMergeCell, UpMergeCell)):
+                continue
+            # If cell is IgnoreCell, direct continue
+            if (i, j) in ignore_header_cells:
+                continue
+            # Set r1/r2/c1/c2 for sheet.write_merge
+            r1, r2, c1, c2 = i, i, j, j
+            # Down for merge cells
+            for r2 in range(r1 + 1, rlen):
+                if (r2, c1) in ignore_header_cells:
+                    break
+                if not isinstance(headers[r2][c1], UpMergeCell):
+                    r2 -= 1
+                    break
+            # Right for merge cells
+            for c2 in range(c1 + 1, clen):
+                if (r1, c2) in ignore_header_cells:
+                    break
+                if not isinstance(headers[r1][c2], LeftMergeCell):
+                    c2 -= 1
+                    break
+            # Ignore cells
+            for k in range(r1, r2 + 1):
+                for m in range(c1, c2 + 1):
+                    ignore_header_cells.add((k, m))
+            value = headers[r1][c1]
+            value, cell_style = get_cell_info(self, value, header_cell_styles)
+            sheet.write_merge(r1, r2, c1, c2, value, style=cell_style)
+            if c1 == c2:
+                auto_adjust_width(self, sheet, c1, value, widths)
+
+
 @property
 def as_xls(self):
     if not isinstance(self.data, dict):
-        self.data = {self.sheet_name: self.data}
+        self.data = {self.sheet_name: {'data': self.data, 'headers': self.headers}}
 
     cell_styles = get_cell_styles(self)
 
     book = xlwt.Workbook(encoding=self.encoding)
 
-    for sheet_name, sheet_data in self.data.items():
+    for sheet_name, sheet_info in self.data.items():
+        sheet_data = sheet_info.get('data') or []
+        sheet_headers = generate_headers(sheet_info.get('headers'))
+
         sheet = book.add_sheet(sheet_name)
 
         widths = {}
-        for rowx, row in enumerate(sheet_data):
+
+        # Write header cells
+        write_header_cells(self, sheet, sheet_headers, widths)
+
+        rowx = len(sheet_headers)  # Data start row index
+        for row in sheet_data:
             for colx, value in enumerate(row):
                 if value is None and self.blanks_for_none:
                     value = ''
                 value, cell_style = get_cell_info(self, value, cell_styles)
                 sheet.write(rowx, colx, value, style=cell_style)
                 auto_adjust_width(self, sheet, colx, value, widths)
+            rowx += 1  # Update row index
 
     book.save(self.output)
 
@@ -131,17 +260,24 @@ def as_xls(self):
 @property
 def as_row_merge_xls(self):
     if not isinstance(self.data, dict):
-        self.data = {self.sheet_name: self.data}
+        self.data = {self.sheet_name: {'data': self.data, 'headers': self.headers}}
 
     cell_styles = get_cell_styles(self)
 
     book = xlwt.Workbook(encoding=self.encoding)
 
-    for sheet_name, sheet_data in self.data.items():
+    for sheet_name, sheet_info in self.data.items():
+        sheet_data = sheet_info.get('data') or []
+        sheet_headers = generate_headers(sheet_info.get('headers'))
+
         sheet = book.add_sheet(sheet_name)
 
         widths = {}
-        rowx = 0  # 行起始索引
+
+        # Write header cells
+        write_header_cells(self, sheet, sheet_headers, widths)
+
+        rowx = len(sheet_headers)  # Data start row index
         for row in sheet_data:
             # Max row number for current row
             rowmax = max([(len(r) if isinstance(r, list) else 1) for r in row])
@@ -156,7 +292,7 @@ def as_row_merge_xls(self):
                     sheet.write_merge(rowx, rowx + rowmax - 1, colx, colx, value, style=cell_style)
                     auto_adjust_width(self, sheet, colx, value, widths)
 
-            rowx += rowmax  # 更新行起始索引
+            rowx += rowmax  # Update row index
 
     book.save(self.output)
 
@@ -164,20 +300,27 @@ def as_row_merge_xls(self):
 @property
 def as_list_row_merge_xls(self):
     if not isinstance(self.data, dict):
-        self.data = {self.sheet_name: self.data}
+        self.data = {self.sheet_name: {'data': self.data, 'headers': self.headers}}
 
     cell_styles = get_cell_styles(self)
 
     book = xlwt.Workbook(encoding=self.encoding)
 
     q = deque()
-    for sheet_name, sheet_data in self.data.items():
+    for sheet_name, sheet_info in self.data.items():
+        sheet_data = sheet_info.get('data') or []
+        sheet_headers = generate_headers(sheet_info.get('headers'))
+
         sheet = book.add_sheet(sheet_name)
 
         widths = {}
-        rowx = 0  # 行起始索引
+
+        # Write header cells
+        write_header_cells(self, sheet, sheet_headers, widths)
+
+        rowx = len(sheet_headers)  # Data start row index
         colx = 0
-        for _, row in enumerate(sheet_data):
+        for row in sheet_data:
             rowmax = 1
             _rowx = rowx
             _rowxd = {}
@@ -198,24 +341,17 @@ def as_list_row_merge_xls(self):
                         sheet.write_merge(_rowx, _rowx + mergedrowsnum - 1, _colx, _colx, value, style=cell_style)
                         auto_adjust_width(self, sheet, _colx, value, widths)
 
-            rowx += rowmax  # 更新行起始索引
+            rowx += rowmax  # Update row index
             colx = 0
 
     book.save(self.output)
-
-
-def generate_sheet_data(sheet_data):
-    data = sheet_data.get('data')
-    mapping = sheet_data.get('mapping')
-    headers = sheet_data.get('headers')
-    return ([headers] if headers else []) + data_preprocessing(data, mapping)
 
 
 @property
 def as_dict_row_merge_xls(self):
     if not isinstance(self.data, dict):
         self.data = {self.sheet_name: {'data': self.data, 'mapping': self.mapping, 'headers': self.headers}}
-    self.data = {sheet_name: generate_sheet_data(sheet_data) for sheet_name, sheet_data in self.data.items()}
+    self.data = {sheet_name: generate_sheet_info(sheet_info) for sheet_name, sheet_info in self.data.items()}
     self.as_list_row_merge_xls
 
 
@@ -226,7 +362,9 @@ def as_csv(self):
     # https://wiki.scn.sap.com/wiki/display/ABAP/CSV+tests+of+encoding+and+column+separator?original_fqdn=wiki.sdn.sap.com
     if self.encoding == 'utf-8-sig':
         self.output.write(codecs.BOM_UTF8)
-    for row in self.data:
+    if not self.data:
+        return
+    for row in list(self.data.values())[0].get('data') or []:
         out_row = []
         for value in row:
             if value is None and self.blanks_for_none:

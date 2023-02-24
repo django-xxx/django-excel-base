@@ -1,5 +1,5 @@
-# django-excel-base
-Django Excel Base
+# [Deprecated] django-excel-base
+Django Excel Base. Deprecated, use [excel-base](https://github.com/Brightcells/excel-base) instead.
 
 ## Installation
 ```shell

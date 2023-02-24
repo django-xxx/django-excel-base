@@ -21,7 +21,7 @@ setup(
 
     packages=['django_excel_base'],
     py_modules=[],
-    install_requires=['xlwt', 'pytz', 'screen'],
+    install_requires=['xlwt', 'screen', 'TimeConvert'],
 
     classifiers=[
         'Development Status :: 5 - Production/Stable',

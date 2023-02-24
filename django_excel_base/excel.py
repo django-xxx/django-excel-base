@@ -6,11 +6,9 @@ import datetime
 import json
 from collections import deque
 
-import pytz
 import screen
 import xlwt
-from django.conf import settings
-from django.utils import timezone
+from TimeConvert import TimeConvert as tc
 
 from .compat import basestring, str
 
@@ -130,8 +128,8 @@ def get_cell_info(self, value, cell_styles):
         value = ''
 
     if isinstance(value, datetime.datetime):
-        if timezone.is_aware(value):
-            value = timezone.make_naive(value, pytz.timezone(settings.TIME_ZONE))
+        if tc.is_aware(value):
+            value = tc.make_naive(value, self.timezone)
         cell_style = cell_styles['datetime']
     elif isinstance(value, datetime.date):
         cell_style = cell_styles['date']
